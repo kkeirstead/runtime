@@ -217,18 +217,26 @@ namespace System.Diagnostics.Metrics
         // is a simpler way to opt everything out in bulk.
         private sealed class CommandHandler
         {
-            private AggregationManager? _aggregationManager;
-            private string _sessionId = "";
+            private Dictionary<string, AggregationManager?>? _aggregationManagers;
+            //private string _sessionId = "";
 
             public CommandHandler(MetricsEventSource parent)
             {
                 Parent = parent;
+#if OS_ISBROWSER_SUPPORT
+                _aggregationManagers = null;
+#else
+                _aggregationManagers = new();
+#endif
+
             }
 
             public MetricsEventSource Parent { get; private set;}
 
             public void OnEventCommand(EventCommandEventArgs command)
             {
+                string tempId = string.Empty;
+
                 try
                 {
 #if OS_ISBROWSER_SUPPORT
@@ -244,44 +252,41 @@ namespace System.Diagnostics.Metrics
                         return;
                     }
 #endif
-                    if (command.Command == EventCommand.Update || command.Command == EventCommand.Disable ||
-                        command.Command == EventCommand.Enable)
+                    _aggregationManagers ??= new(); // shouldn't be needed, but testing it this way
+
+                    if (command.Arguments!.TryGetValue("SessionId", out string? id))
                     {
-                        if (_aggregationManager != null)
+                        tempId = id!;
+                    }
+
+                    if (command.Command == EventCommand.Disable)
+                    {
+                        if (!string.IsNullOrEmpty(tempId) && _aggregationManagers![tempId] != null)
                         {
-                            if (command.Command == EventCommand.Enable || command.Command == EventCommand.Update)
+                            if (command.Command == EventCommand.Disable)
                             {
-                                // trying to add more sessions is not supported
-                                // EventSource doesn't provide an API that allows us to enumerate the listeners'
-                                // filter arguments independently or to easily track them ourselves. For example
-                                // removing a listener still shows up as EventCommand.Enable as long as at least
-                                // one other listener is active. In the future we might be able to figure out how
-                                // to infer the changes from the info we do have or add a better API but for now
-                                // I am taking the simple route  and not supporting it.
-                                Parent.MultipleSessionsNotSupportedError(_sessionId);
-                                return;
+                                _aggregationManagers[tempId]!.Dispose();
+                                _aggregationManagers[tempId] = null;
+                                Parent.Message($"Previous session with id {tempId} is stopped");
                             }
 
-                            _aggregationManager.Dispose();
-                            _aggregationManager = null;
-                            Parent.Message($"Previous session with id {_sessionId} is stopped");
                         }
-                        _sessionId = "";
+                        //_sessionId = "";
                     }
                     if ((command.Command == EventCommand.Update || command.Command == EventCommand.Enable) &&
                         command.Arguments != null)
                     {
-                        if (command.Arguments!.TryGetValue("SessionId", out string? id))
+                        if (!string.IsNullOrEmpty(tempId))
                         {
-                            _sessionId = id!;
-                            Parent.Message($"SessionId argument received: {_sessionId}");
+                            //_sessionId = id!;
+                            Parent.Message($"SessionId argument received: {tempId}");
                         }
                         else
                         {
-                            _sessionId = System.Guid.NewGuid().ToString();
-                            Parent.Message($"New session started. SessionId auto-generated: {_sessionId}");
+                            //_sessionId = System.Guid.NewGuid().ToString();
+                            tempId = System.Guid.NewGuid().ToString();
+                            Parent.Message($"New session started. SessionId auto-generated: {tempId}");
                         }
-
 
                         double defaultIntervalSecs = 1;
                         Debug.Assert(AggregationManager.MinCollectionTimeSecs <= defaultIntervalSecs);
@@ -340,8 +345,30 @@ namespace System.Diagnostics.Metrics
                             maxHistograms = defaultMaxHistograms;
                         }
 
-                        string sessionId = _sessionId;
-                        _aggregationManager = new AggregationManager(
+                        string sessionId = tempId;
+                        //string sessionId = _sessionId;
+
+                        if (!_aggregationManagers!.ContainsKey(tempId))
+                        {
+                            _aggregationManagers!.Add(tempId, new AggregationManager(
+                            maxTimeSeries,
+                            maxHistograms,
+                            (i, s) => TransmitMetricValue(i, s, sessionId),
+                            (startIntervalTime, endIntervalTime) => Parent.CollectionStart(sessionId, startIntervalTime, endIntervalTime),
+                            (startIntervalTime, endIntervalTime) => Parent.CollectionStop(sessionId, startIntervalTime, endIntervalTime),
+                            i => Parent.BeginInstrumentReporting(sessionId, i.Meter.Name, i.Meter.Version, i.Name, i.GetType().Name, i.Unit, i.Description),
+                            i => Parent.EndInstrumentReporting(sessionId, i.Meter.Name, i.Meter.Version, i.Name, i.GetType().Name, i.Unit, i.Description),
+                            i => Parent.InstrumentPublished(sessionId, i.Meter.Name, i.Meter.Version, i.Name, i.GetType().Name, i.Unit, i.Description),
+                            () => Parent.InitialInstrumentEnumerationComplete(sessionId),
+                            e => Parent.Error(sessionId, e.ToString()),
+                            () => Parent.TimeSeriesLimitReached(sessionId),
+                            () => Parent.HistogramLimitReached(sessionId),
+                            e => Parent.ObservableInstrumentCallbackError(sessionId, e.ToString())));
+                        }
+                        else
+                        {
+                            // clobbering the existing one for the sessionId
+                            _aggregationManagers[tempId] = new AggregationManager(
                             maxTimeSeries,
                             maxHistograms,
                             (i, s) => TransmitMetricValue(i, s, sessionId),
@@ -355,31 +382,33 @@ namespace System.Diagnostics.Metrics
                             () => Parent.TimeSeriesLimitReached(sessionId),
                             () => Parent.HistogramLimitReached(sessionId),
                             e => Parent.ObservableInstrumentCallbackError(sessionId, e.ToString()));
+                        }
 
-                        _aggregationManager.SetCollectionPeriod(TimeSpan.FromSeconds(refreshIntervalSecs));
+                        _aggregationManagers[tempId]!.SetCollectionPeriod(TimeSpan.FromSeconds(refreshIntervalSecs));
 
                         if (command.Arguments!.TryGetValue("Metrics", out string? metricsSpecs))
                         {
                             Parent.Message($"Metrics argument received: {metricsSpecs}");
-                            ParseSpecs(metricsSpecs);
+                            ParseSpecs(metricsSpecs, tempId);
                         }
                         else
                         {
                             Parent.Message("No Metrics argument received");
                         }
 
-                        _aggregationManager.Start();
+                        _aggregationManagers[tempId]!.Start();
                     }
                 }
-                catch (Exception e) when (LogError(e))
+                catch (Exception e) when (LogError(tempId, e))
                 {
                     // this will never run
                 }
             }
 
-            private bool LogError(Exception e)
+            private bool LogError(string tempId, Exception e)
             {
-                Parent.Error(_sessionId, e.ToString());
+                Parent.Error(tempId, e.Message);
+                //Parent.Error(_sessionId, e.ToString());
                 // this code runs as an exception filter
                 // returning false ensures the catch handler isn't run
                 return false;
@@ -388,7 +417,7 @@ namespace System.Diagnostics.Metrics
             private static readonly char[] s_instrumentSeparators = new char[] { '\r', '\n', ',', ';' };
 
             [UnsupportedOSPlatform("browser")]
-            private void ParseSpecs(string? metricsSpecs)
+            private void ParseSpecs(string? metricsSpecs, string tempId)
             {
                 if (metricsSpecs == null)
                 {
@@ -402,11 +431,11 @@ namespace System.Diagnostics.Metrics
                     Parent.Message($"Parsed metric: {spec}");
                     if (spec.InstrumentName != null)
                     {
-                        _aggregationManager!.Include(spec.MeterName, spec.InstrumentName);
+                        _aggregationManagers![tempId]!.Include(spec.MeterName, spec.InstrumentName);
                     }
                     else
                     {
-                        _aggregationManager!.Include(spec.MeterName);
+                        _aggregationManagers![tempId]!.Include(spec.MeterName);
                     }
                 }
             }
