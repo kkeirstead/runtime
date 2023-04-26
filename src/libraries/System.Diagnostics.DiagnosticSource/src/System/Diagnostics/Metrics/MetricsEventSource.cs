@@ -218,24 +218,17 @@ namespace System.Diagnostics.Metrics
         private sealed class CommandHandler
         {
             private Dictionary<string, AggregationManager?>? _aggregationManagers;
-            //private string _sessionId = "";
 
             public CommandHandler(MetricsEventSource parent)
             {
                 Parent = parent;
-#if OS_ISBROWSER_SUPPORT
-                _aggregationManagers = null;
-#else
-                _aggregationManagers = new();
-#endif
-
             }
 
             public MetricsEventSource Parent { get; private set;}
 
             public void OnEventCommand(EventCommandEventArgs command)
             {
-                string tempId = string.Empty;
+                string sessionId = string.Empty;
 
                 try
                 {
@@ -252,40 +245,37 @@ namespace System.Diagnostics.Metrics
                         return;
                     }
 #endif
-                    _aggregationManagers ??= new(); // shouldn't be needed, but testing it this way
+                    _aggregationManagers ??= new();
 
                     if (command.Arguments!.TryGetValue("SessionId", out string? id))
                     {
-                        tempId = id!;
+                        sessionId = id!;
                     }
 
                     if (command.Command == EventCommand.Disable)
                     {
-                        if (!string.IsNullOrEmpty(tempId) && _aggregationManagers![tempId] != null)
+                        if (!string.IsNullOrEmpty(sessionId) && _aggregationManagers![sessionId] != null)
                         {
                             if (command.Command == EventCommand.Disable)
                             {
-                                _aggregationManagers[tempId]!.Dispose();
-                                _aggregationManagers[tempId] = null;
-                                Parent.Message($"Previous session with id {tempId} is stopped");
+                                _aggregationManagers[sessionId]!.Dispose();
+                                _aggregationManagers[sessionId] = null;
+                                Parent.Message($"Previous session with id {sessionId} is stopped");
                             }
 
                         }
-                        //_sessionId = "";
                     }
                     if ((command.Command == EventCommand.Update || command.Command == EventCommand.Enable) &&
                         command.Arguments != null)
                     {
-                        if (!string.IsNullOrEmpty(tempId))
+                        if (!string.IsNullOrEmpty(sessionId))
                         {
-                            //_sessionId = id!;
-                            Parent.Message($"SessionId argument received: {tempId}");
+                            Parent.Message($"SessionId argument received: {sessionId}");
                         }
                         else
                         {
-                            //_sessionId = System.Guid.NewGuid().ToString();
-                            tempId = System.Guid.NewGuid().ToString();
-                            Parent.Message($"New session started. SessionId auto-generated: {tempId}");
+                            sessionId = Guid.NewGuid().ToString();
+                            Parent.Message($"New session started. SessionId auto-generated: {sessionId}");
                         }
 
                         double defaultIntervalSecs = 1;
@@ -345,12 +335,9 @@ namespace System.Diagnostics.Metrics
                             maxHistograms = defaultMaxHistograms;
                         }
 
-                        string sessionId = tempId;
-                        //string sessionId = _sessionId;
-
-                        if (!_aggregationManagers!.ContainsKey(tempId))
+                        if (!_aggregationManagers!.ContainsKey(sessionId))
                         {
-                            _aggregationManagers!.Add(tempId, new AggregationManager(
+                            _aggregationManagers!.Add(sessionId, new AggregationManager(
                             maxTimeSeries,
                             maxHistograms,
                             (i, s) => TransmitMetricValue(i, s, sessionId),
@@ -368,7 +355,7 @@ namespace System.Diagnostics.Metrics
                         else
                         {
                             // clobbering the existing one for the sessionId
-                            _aggregationManagers[tempId] = new AggregationManager(
+                            _aggregationManagers[sessionId] = new AggregationManager(
                             maxTimeSeries,
                             maxHistograms,
                             (i, s) => TransmitMetricValue(i, s, sessionId),
@@ -384,22 +371,22 @@ namespace System.Diagnostics.Metrics
                             e => Parent.ObservableInstrumentCallbackError(sessionId, e.ToString()));
                         }
 
-                        _aggregationManagers[tempId]!.SetCollectionPeriod(TimeSpan.FromSeconds(refreshIntervalSecs));
+                        _aggregationManagers[sessionId]!.SetCollectionPeriod(TimeSpan.FromSeconds(refreshIntervalSecs));
 
                         if (command.Arguments!.TryGetValue("Metrics", out string? metricsSpecs))
                         {
                             Parent.Message($"Metrics argument received: {metricsSpecs}");
-                            ParseSpecs(metricsSpecs, tempId);
+                            ParseSpecs(metricsSpecs, sessionId);
                         }
                         else
                         {
                             Parent.Message("No Metrics argument received");
                         }
 
-                        _aggregationManagers[tempId]!.Start();
+                        _aggregationManagers[sessionId]!.Start();
                     }
                 }
-                catch (Exception e) when (LogError(tempId, e))
+                catch (Exception e) when (LogError(sessionId, e))
                 {
                     // this will never run
                 }
@@ -408,7 +395,6 @@ namespace System.Diagnostics.Metrics
             private bool LogError(string tempId, Exception e)
             {
                 Parent.Error(tempId, e.Message);
-                //Parent.Error(_sessionId, e.ToString());
                 // this code runs as an exception filter
                 // returning false ensures the catch handler isn't run
                 return false;
