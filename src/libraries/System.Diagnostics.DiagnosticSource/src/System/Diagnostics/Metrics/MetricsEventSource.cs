@@ -252,7 +252,7 @@ namespace System.Diagnostics.Metrics
                         sessionId = id!;
                     }
 
-                    if (command.Command == EventCommand.Disable)
+                    if (command.Command == EventCommand.Disable) // appears that sessionId doesn't come in with Disable
                     {
                         if (!string.IsNullOrEmpty(sessionId) && _aggregationManagers![sessionId] != null)
                         {

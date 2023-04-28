@@ -25,6 +25,195 @@ namespace System.Diagnostics.Metrics.Tests
         }
 
         [ConditionalFact(typeof(PlatformDetection), nameof(PlatformDetection.IsNotBrowser))]
+        //[OuterLoop("Slow and has lots of console spew")]
+        public void EventSourcePublishesTimeSeriesMultipleListeners()
+        {
+            using Meter meter = new Meter("TestMeter1");
+            Counter<int> c = meter.CreateCounter<int>("counter1");
+            ObservableCounter<int> oc = meter.CreateObservableCounter<int>("observableCounter1", () => { return 7; });
+            ObservableGauge<int> og = meter.CreateObservableGauge<int>("observableGauge1", () => { return 9; });
+            Histogram<int> h = meter.CreateHistogram<int>("histogram1");
+            UpDownCounter<int> udc = meter.CreateUpDownCounter<int>("upDownCounter1");
+            ObservableUpDownCounter<int> oudc = meter.CreateObservableUpDownCounter<int>("observableUpDownCounter1", () => { return 11; });
+
+            EventWrittenEventArgs[] events;
+            EventWrittenEventArgs[] events2;
+
+            using (MetricsEventListener listener = new MetricsEventListener(_output, MetricsEventListener.TimeSeriesValues, IntervalSecs, "TestMeter1"))
+            {
+                using (MetricsEventListener listener2 = new MetricsEventListener(_output, MetricsEventListener.TimeSeriesValues, IntervalSecs, "TestMeter1"))
+                {
+                    var listeners = new List<MetricsEventListener>() { listener, listener2 };
+
+                    MetricsEventListener.WaitForCollectionStop(listeners, s_waitForEventTimeout, 1);
+                    c.Add(5);
+                    h.Record(19);
+                    udc.Add(-33);
+                    MetricsEventListener.WaitForCollectionStop(listeners, s_waitForEventTimeout, 2);
+                    c.Add(12);
+                    h.Record(26);
+                    udc.Add(-40);
+                    MetricsEventListener.WaitForCollectionStop(listeners, s_waitForEventTimeout, 3);
+                    events = listener.Events.ToArray();
+                    events2 = listener2.Events.ToArray();
+                }
+            }
+
+            AssertBeginInstrumentReportingEventsPresent(events, c, oc, og, h, udc, oudc);
+            AssertInitialEnumerationCompleteEventPresent(events);
+            AssertCounterEventsPresent(events, meter.Name, c.Name, "", "", ("5", "5"), ("12", "17"));
+            AssertCounterEventsPresent(events, meter.Name, oc.Name, "", "", ("", "7"), ("0", "7"));
+            AssertGaugeEventsPresent(events, meter.Name, og.Name, "", "", "9", "9");
+            AssertHistogramEventsPresent(events, meter.Name, h.Name, "", "", "0.5=19;0.95=19;0.99=19", "0.5=26;0.95=26;0.99=26");
+            AssertUpDownCounterEventsPresent(events, meter.Name, udc.Name, "", "", ("-33", "-33"), ("-40", "-73"));
+            AssertUpDownCounterEventsPresent(events, meter.Name, oudc.Name, "", "", ("", "11"), ("0", "11"));
+            AssertCollectStartStopEventsPresent(events, IntervalSecs, 3);
+
+            AssertBeginInstrumentReportingEventsPresent(events2, c, oc, og, h, udc, oudc);
+            AssertInitialEnumerationCompleteEventPresent(events2);
+            AssertCounterEventsPresent(events2, meter.Name, c.Name, "", "", ("5", "5"), ("12", "17"));
+            AssertCounterEventsPresent(events2, meter.Name, oc.Name, "", "", ("", "7"), ("0", "7"));
+            AssertGaugeEventsPresent(events2, meter.Name, og.Name, "", "", "9", "9");
+            AssertHistogramEventsPresent(events2, meter.Name, h.Name, "", "", "0.5=19;0.95=19;0.99=19", "0.5=26;0.95=26;0.99=26");
+            AssertUpDownCounterEventsPresent(events2, meter.Name, udc.Name, "", "", ("-33", "-33"), ("-40", "-73"));
+            AssertUpDownCounterEventsPresent(events2, meter.Name, oudc.Name, "", "", ("", "11"), ("0", "11"));
+            AssertCollectStartStopEventsPresent(events2, IntervalSecs, 3);
+        }
+
+        [ConditionalFact(typeof(PlatformDetection), nameof(PlatformDetection.IsNotBrowser))]
+        //[OuterLoop("Slow and has lots of console spew")]
+        public void EventSourcePublishesTimeSeriesIncrementingValuesMultipleListeners()
+        {
+            using Meter meter = new Meter("TestMeter1");
+            Counter<int> c = meter.CreateCounter<int>("counter1");
+            int counterState = 3;
+            ObservableCounter<int> oc = meter.CreateObservableCounter<int>("observableCounter1", () => { counterState += 7; return counterState; });
+            int gaugeState = 0;
+            ObservableGauge<int> og = meter.CreateObservableGauge<int>("observableGauge1", () => { gaugeState += 9; return gaugeState; });
+            Histogram<int> h = meter.CreateHistogram<int>("histogram1");
+            UpDownCounter<int> udc = meter.CreateUpDownCounter<int>("upDownCounter1");
+            int upDownCounterState = 0;
+            ObservableUpDownCounter<int> oudc = meter.CreateObservableUpDownCounter<int>("observableUpDownCounter1", () => { upDownCounterState -= 11; return upDownCounterState; });
+
+            EventWrittenEventArgs[] events;
+            EventWrittenEventArgs[] events2;
+
+            using (MetricsEventListener listener = new MetricsEventListener(_output, MetricsEventListener.TimeSeriesValues, IntervalSecs, "TestMeter1"))
+            {
+                Thread.Sleep(2000);
+
+                using (MetricsEventListener listener2 = new MetricsEventListener(_output, MetricsEventListener.TimeSeriesValues, IntervalSecs, "TestMeter1"))
+                {
+                    var listeners = new List<MetricsEventListener>() { listener, listener2 };
+
+                    MetricsEventListener.WaitForCollectionStop(listeners, s_waitForEventTimeout, 1);
+                    c.Add(5);
+                    h.Record(19);
+                    udc.Add(-33);
+                    MetricsEventListener.WaitForCollectionStop(listeners, s_waitForEventTimeout, 2);
+                    c.Add(12);
+                    h.Record(26);
+                    udc.Add(-40);
+                    MetricsEventListener.WaitForCollectionStop(listeners, s_waitForEventTimeout, 3);
+                    events = listener.Events.ToArray();
+                    events2 = listener2.Events.ToArray();
+                }
+            }
+
+            AssertBeginInstrumentReportingEventsPresent(events, c, oc, og, h, udc, oudc);
+            AssertInitialEnumerationCompleteEventPresent(events);
+            AssertCounterEventsPresent(events, meter.Name, c.Name, "", "", ("5", "5"), ("12", "17"));
+            AssertCounterEventsPresent(events, meter.Name, oc.Name, "", "", ("", "10"), ("14", "24"));
+            AssertGaugeEventsPresent(events, meter.Name, og.Name, "", "", "9", "27");
+            AssertHistogramEventsPresent(events, meter.Name, h.Name, "", "", "0.5=19;0.95=19;0.99=19", "0.5=26;0.95=26;0.99=26");
+            AssertUpDownCounterEventsPresent(events, meter.Name, udc.Name, "", "", ("-33", "-33"), ("-40", "-73"));
+            AssertUpDownCounterEventsPresent(events, meter.Name, oudc.Name, "", "", ("", "-11"), ("-22", "-33"));
+            AssertCollectStartStopEventsPresent(events, IntervalSecs, 3);
+
+            AssertBeginInstrumentReportingEventsPresent(events2, c, oc, og, h, udc, oudc);
+            AssertInitialEnumerationCompleteEventPresent(events2);
+            AssertCounterEventsPresent(events2, meter.Name, c.Name, "", "", ("5", "5"), ("12", "17"));
+            AssertCounterEventsPresent(events2, meter.Name, oc.Name, "", "", ("", "17"), ("14", "31"));
+            AssertGaugeEventsPresent(events2, meter.Name, og.Name, "", "", "18", "36");
+            AssertHistogramEventsPresent(events2, meter.Name, h.Name, "", "", "0.5=19;0.95=19;0.99=19", "0.5=26;0.95=26;0.99=26");
+            AssertUpDownCounterEventsPresent(events2, meter.Name, udc.Name, "", "", ("-33", "-33"), ("-40", "-73"));
+            AssertUpDownCounterEventsPresent(events2, meter.Name, oudc.Name, "", "", ("", "-22"), ("-22", "-44"));
+            AssertCollectStartStopEventsPresent(events2, IntervalSecs, 3);
+        }
+
+        [ConditionalFact(typeof(PlatformDetection), nameof(PlatformDetection.IsNotBrowser))]
+        //[OuterLoop("Slow and has lots of console spew")]
+        public void EventSourcePublishesTimeSeriesIncrementingValuesMultipleSeparateListeners()
+        {
+            using Meter meter = new Meter("TestMeter1");
+            Counter<int> c = meter.CreateCounter<int>("counter1");
+            int counterState = 3;
+            ObservableCounter<int> oc = meter.CreateObservableCounter<int>("observableCounter1", () => { counterState += 7; return counterState; });
+            int gaugeState = 0;
+            ObservableGauge<int> og = meter.CreateObservableGauge<int>("observableGauge1", () => { gaugeState += 9; return gaugeState; });
+            Histogram<int> h = meter.CreateHistogram<int>("histogram1");
+            UpDownCounter<int> udc = meter.CreateUpDownCounter<int>("upDownCounter1");
+            int upDownCounterState = 0;
+            ObservableUpDownCounter<int> oudc = meter.CreateObservableUpDownCounter<int>("observableUpDownCounter1", () => { upDownCounterState -= 11; return upDownCounterState; });
+
+            EventWrittenEventArgs[] events;
+            EventWrittenEventArgs[] events2;
+
+            using (MetricsEventListener listener = new MetricsEventListener(_output, MetricsEventListener.TimeSeriesValues, IntervalSecs, "TestMeter1"))
+            {
+                /*listener.WaitForCollectionStop(s_waitForEventTimeout, 1);
+                c.Add(5);
+                h.Record(19);
+                udc.Add(-33);
+                listener.WaitForCollectionStop(s_waitForEventTimeout, 2);
+                c.Add(12);
+                h.Record(26);
+                udc.Add(-40);
+                listener.WaitForCollectionStop(s_waitForEventTimeout, 3);*/
+                events = listener.Events.ToArray();
+            }
+
+            counterState = 3;
+            gaugeState = 0;
+            upDownCounterState = 0;
+
+            using (MetricsEventListener listener2 = new MetricsEventListener(_output, MetricsEventListener.TimeSeriesValues, IntervalSecs, "TestMeter1"))
+            {
+                listener2.WaitForCollectionStop(s_waitForEventTimeout, 1);
+                c.Add(5);
+                h.Record(19);
+                udc.Add(-33);
+                listener2.WaitForCollectionStop(s_waitForEventTimeout, 2);
+                c.Add(12);
+                h.Record(26);
+                udc.Add(-40);
+                listener2.WaitForCollectionStop(s_waitForEventTimeout, 3);
+                events2 = listener2.Events.ToArray();
+            }
+
+            AssertBeginInstrumentReportingEventsPresent(events, c, oc, og, h, udc, oudc);
+            AssertInitialEnumerationCompleteEventPresent(events);
+            AssertCounterEventsPresent(events, meter.Name, c.Name, "", "", ("5", "5"), ("12", "17"));
+            AssertCounterEventsPresent(events, meter.Name, oc.Name, "", "", ("", "10"), ("7", "17"));
+            AssertGaugeEventsPresent(events, meter.Name, og.Name, "", "", "9", "18");
+            AssertHistogramEventsPresent(events, meter.Name, h.Name, "", "", "0.5=19;0.95=19;0.99=19", "0.5=26;0.95=26;0.99=26");
+            AssertUpDownCounterEventsPresent(events, meter.Name, udc.Name, "", "", ("-33", "-33"), ("-40", "-73"));
+            AssertUpDownCounterEventsPresent(events, meter.Name, oudc.Name, "", "", ("", "-11"), ("-11", "-22"));
+            AssertCollectStartStopEventsPresent(events, IntervalSecs, 3);
+
+            AssertBeginInstrumentReportingEventsPresent(events2, c, oc, og, h, udc, oudc);
+            AssertInitialEnumerationCompleteEventPresent(events2);
+            AssertCounterEventsPresent(events2, meter.Name, c.Name, "", "", ("5", "5"), ("12", "17"));
+            AssertCounterEventsPresent(events2, meter.Name, oc.Name, "", "", ("", "17"), ("7", "24"));
+            AssertGaugeEventsPresent(events2, meter.Name, og.Name, "", "", "9", "18");
+            AssertHistogramEventsPresent(events2, meter.Name, h.Name, "", "", "0.5=19;0.95=19;0.99=19", "0.5=26;0.95=26;0.99=26");
+            AssertUpDownCounterEventsPresent(events2, meter.Name, udc.Name, "", "", ("-33", "-33"), ("-40", "-73"));
+            AssertUpDownCounterEventsPresent(events2, meter.Name, oudc.Name, "", "", ("", "-22"), ("-11", "-33"));
+            AssertCollectStartStopEventsPresent(events2, IntervalSecs, 3);
+        }
+
+
+        [ConditionalFact(typeof(PlatformDetection), nameof(PlatformDetection.IsNotBrowser))]
         [OuterLoop("Slow and has lots of console spew")]
         public void EventSourcePublishesTimeSeriesWithEmptyMetadata()
         {
@@ -1214,6 +1403,22 @@ namespace System.Diagnostics.Metrics.Tests
                 
             }
             _autoResetEvent.Set();
+        }
+
+        public static void WaitForCollectionStop(List<MetricsEventListener> listeners, TimeSpan timeout, int numEvents)
+        {
+            List<Task> tasks = new();
+            foreach (var listener in listeners)
+            {
+                tasks.Add(Task.Run(() => listener.WaitForCollectionStop(timeout, numEvents)));
+            }
+
+            Task completion = Task.WhenAll(tasks.ToArray());
+
+            while (!completion.IsCompleted)
+            {
+                // Spin
+            }
         }
 
         public void WaitForCollectionStop(TimeSpan timeout, int numEvents) => WaitForEvent(timeout, numEvents, "CollectionStop");
