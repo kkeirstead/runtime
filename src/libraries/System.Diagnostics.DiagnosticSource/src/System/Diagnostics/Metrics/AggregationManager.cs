@@ -21,7 +21,7 @@ namespace System.Diagnostics.Metrics
         // these fields are modified after construction and accessed on multiple threads, use lock(this) to ensure the data
         // is synchronized
         private readonly List<Predicate<Instrument>> _instrumentConfigFuncs = new();
-        private TimeSpan _collectionPeriod;
+        public TimeSpan _collectionPeriod;
 
         private readonly ConcurrentDictionary<Instrument, InstrumentState> _instrumentStates = new();
         private readonly CancellationTokenSource _cts = new();
@@ -30,8 +30,8 @@ namespace System.Diagnostics.Metrics
         private int _currentTimeSeries;
         private int _currentHistograms;
 
-        private readonly int _maxTimeSeries;
-        private readonly int _maxHistograms;
+        public readonly int _maxTimeSeries;
+        public readonly int _maxHistograms;
         private readonly Action<Instrument, LabeledAggregationStatistics> _collectMeasurement;
         private readonly Action<DateTime, DateTime> _beginCollection;
         private readonly Action<DateTime, DateTime> _endCollection;

@@ -17,7 +17,7 @@ namespace System.Diagnostics.Metrics.Tests
     {
         ITestOutputHelper _output;
         const double IntervalSecs = 10;
-        static readonly TimeSpan s_waitForEventTimeout = TimeSpan.FromSeconds(60);
+        static readonly TimeSpan s_waitForEventTimeout = TimeSpan.FromSeconds(15);
 
         public MetricEventSourceTests(ITestOutputHelper output)
         {
@@ -25,7 +25,7 @@ namespace System.Diagnostics.Metrics.Tests
         }
 
         [ConditionalFact(typeof(PlatformDetection), nameof(PlatformDetection.IsNotBrowser))]
-        [OuterLoop("Slow and has lots of console spew")]
+        //[OuterLoop("Slow and has lots of console spew")]
         public void EventSourcePublishesTimeSeriesWithEmptyMetadata()
         {
             using Meter meter = new Meter("TestMeter1");
@@ -66,7 +66,51 @@ namespace System.Diagnostics.Metrics.Tests
         }
 
         [ConditionalFact(typeof(PlatformDetection), nameof(PlatformDetection.IsNotBrowser))]
-        [OuterLoop("Slow and has lots of console spew")]
+        //[OuterLoop("Slow and has lots of console spew")]
+        public void EventSourcePublishesTimeSeriesWithEmptyMetadataMultiplexing()
+        {
+            using Meter meter = new Meter("TestMeter1");
+            Counter<int> c = meter.CreateCounter<int>("counter1");
+
+            using Meter meter2 = new Meter("TestMeter2");
+            Counter<int> c2 = meter.CreateCounter<int>("counter2");
+
+
+            EventWrittenEventArgs[] events;
+            using (MetricsEventListener listener = new MetricsEventListener(_output, MetricsEventListener.TimeSeriesValues, IntervalSecs, "TestMeter1"))
+            {
+                listener.WaitForCollectionStop(s_waitForEventTimeout, 1);
+                c.Add(5);
+                listener.WaitForCollectionStop(s_waitForEventTimeout, 2);
+                c.Add(12);
+                listener.WaitForCollectionStop(s_waitForEventTimeout, 3);
+                events = listener.Events.ToArray();
+            }
+
+            EventWrittenEventArgs[] events2;
+            using (MetricsEventListener listener2 = new MetricsEventListener(_output, MetricsEventListener.TimeSeriesValues, IntervalSecs, "TestMeter2"))
+            {
+                //listener2.WaitForCollectionStop(s_waitForEventTimeout, 1);
+                c2.Add(5);
+                listener2.WaitForCollectionStop(s_waitForEventTimeout, 1);
+                c2.Add(12);
+                listener2.WaitForCollectionStop(s_waitForEventTimeout, 2);
+                events2 = listener2.Events.ToArray();
+            }
+
+            AssertBeginInstrumentReportingEventsPresent(events, c);
+            AssertInitialEnumerationCompleteEventPresent(events);
+            AssertCounterEventsPresent(events, meter.Name, c.Name, "", "", ("5", "5"), ("12", "17"));
+            AssertCollectStartStopEventsPresent(events, IntervalSecs, 3);
+
+            AssertBeginInstrumentReportingEventsPresent(events2, c);
+            AssertInitialEnumerationCompleteEventPresent(events2);
+            AssertCounterEventsPresent(events2, meter2.Name, c2.Name, "", "", ("5", "5"), ("12", "17"));
+            AssertCollectStartStopEventsPresent(events2, IntervalSecs, 3);
+        }
+
+        [ConditionalFact(typeof(PlatformDetection), nameof(PlatformDetection.IsNotBrowser))]
+        //[OuterLoop("Slow and has lots of console spew")]
         public void EventSourcePublishesTimeSeriesWithMetadata()
         {
             using Meter meter = new Meter("TestMeter2");
@@ -107,7 +151,7 @@ namespace System.Diagnostics.Metrics.Tests
         }
 
         [ConditionalFact(typeof(PlatformDetection), nameof(PlatformDetection.IsNotBrowser))]
-        [OuterLoop("Slow and has lots of console spew")]
+        //[OuterLoop("Slow and has lots of console spew")]
         public void EventSourcePublishesTimeSeriesForLateMeter()
         {
             // this ensures the MetricsEventSource exists when the listener tries to query
@@ -167,7 +211,7 @@ namespace System.Diagnostics.Metrics.Tests
         }
 
         [ConditionalFact(typeof(PlatformDetection), nameof(PlatformDetection.IsNotBrowser))]
-        [OuterLoop("Slow and has lots of console spew")]
+        //[OuterLoop("Slow and has lots of console spew")]
         public void EventSourcePublishesTimeSeriesForLateInstruments()
         {
             // this ensures the MetricsEventSource exists when the listener tries to query
@@ -218,7 +262,7 @@ namespace System.Diagnostics.Metrics.Tests
         }
 
         [ConditionalFact(typeof(PlatformDetection), nameof(PlatformDetection.IsNotBrowser))]
-        [OuterLoop("Slow and has lots of console spew")]
+        //[OuterLoop("Slow and has lots of console spew")]
         public void EventSourcePublishesTimeSeriesWithTags()
         {
             using Meter meter = new Meter("TestMeter5");
@@ -298,7 +342,7 @@ namespace System.Diagnostics.Metrics.Tests
 
 
         [ConditionalFact(typeof(PlatformDetection), nameof(PlatformDetection.IsNotBrowser))]
-        [OuterLoop("Slow and has lots of console spew")]
+        //[OuterLoop("Slow and has lots of console spew")]
         [ActiveIssue("https://github.com/dotnet/runtime/issues/79749", TargetFrameworkMonikers.NetFramework)]
         public void EventSourceFiltersInstruments()
         {
@@ -360,7 +404,7 @@ namespace System.Diagnostics.Metrics.Tests
         }
 
         [ConditionalFact(typeof(PlatformDetection), nameof(PlatformDetection.IsNotBrowser))]
-        [OuterLoop("Slow and has lots of console spew")]
+        //[OuterLoop("Slow and has lots of console spew")]
         public void EventSourcePublishesMissingDataPoints()
         {
             using Meter meter = new Meter("TestMeter6");
@@ -448,7 +492,7 @@ namespace System.Diagnostics.Metrics.Tests
         }
 
         [ConditionalFact(typeof(PlatformDetection), nameof(PlatformDetection.IsNotBrowser))]
-        [OuterLoop("Slow and has lots of console spew")]
+        //[OuterLoop("Slow and has lots of console spew")]
         public void EventSourceRejectsNewListener()
         {
             using Meter meter = new Meter("TestMeter7");
@@ -494,7 +538,7 @@ namespace System.Diagnostics.Metrics.Tests
         }
 
         [ConditionalFact(typeof(PlatformDetection), nameof(PlatformDetection.IsNotBrowser))]
-        [OuterLoop("Slow and has lots of console spew")]
+        //[OuterLoop("Slow and has lots of console spew")]
         public void EventSourcePublishesEndEventsOnMeterDispose()
         {
             using Meter meterA = new Meter("TestMeter8");
@@ -544,7 +588,7 @@ namespace System.Diagnostics.Metrics.Tests
 
 
         [ConditionalFact(typeof(PlatformDetection), nameof(PlatformDetection.IsNotBrowser))]
-        [OuterLoop("Slow and has lots of console spew")]
+        //[OuterLoop("Slow and has lots of console spew")]
         public void EventSourcePublishesInstruments()
         {
             using Meter meterA = new Meter("TestMeter10");
@@ -571,7 +615,7 @@ namespace System.Diagnostics.Metrics.Tests
         }
 
         [ConditionalFact(typeof(PlatformDetection), nameof(PlatformDetection.IsNotBrowser))]
-        [OuterLoop("Slow and has lots of console spew")]
+        //[OuterLoop("Slow and has lots of console spew")]
         public void EventSourcePublishesAllDataTypes()
         {
             using Meter meter = new Meter("TestMeter12");
@@ -637,7 +681,7 @@ namespace System.Diagnostics.Metrics.Tests
         }
 
         [ConditionalFact(typeof(PlatformDetection), nameof(PlatformDetection.IsNotBrowser))]
-        [OuterLoop("Slow and has lots of console spew")]
+        //[OuterLoop("Slow and has lots of console spew")]
         public void EventSourceEnforcesTimeSeriesLimit()
         {
             using Meter meter = new Meter("TestMeter13");
@@ -673,7 +717,7 @@ namespace System.Diagnostics.Metrics.Tests
         }
 
         [ConditionalFact(typeof(PlatformDetection), nameof(PlatformDetection.IsNotBrowser))]
-        [OuterLoop("Slow and has lots of console spew")]
+        //[OuterLoop("Slow and has lots of console spew")]
         public void EventSourceEnforcesHistogramLimit()
         {
             using Meter meter = new Meter("TestMeter14");
@@ -710,7 +754,7 @@ namespace System.Diagnostics.Metrics.Tests
         }
 
         [ConditionalFact(typeof(PlatformDetection), nameof(PlatformDetection.IsNotBrowser))]
-        [OuterLoop("Slow and has lots of console spew")]
+        //[OuterLoop("Slow and has lots of console spew")]
         public void EventSourceHandlesObservableCallbackException()
         {
             using Meter meter = new Meter("TestMeter15");
@@ -737,7 +781,7 @@ namespace System.Diagnostics.Metrics.Tests
         }
 
         [ConditionalFact(typeof(PlatformDetection), nameof(PlatformDetection.IsNotBrowser))]
-        [OuterLoop("Slow and has lots of console spew")]
+        //[OuterLoop("Slow and has lots of console spew")]
         public void EventSourceWorksWithSequentialListeners()
         {
             using Meter meter = new Meter("TestMeter16");
@@ -805,7 +849,7 @@ namespace System.Diagnostics.Metrics.Tests
         }
 
         [ConditionalFact(typeof(PlatformDetection), nameof(PlatformDetection.IsNotBrowser))]
-        [OuterLoop("Slow and has lots of console spew")]
+        //[OuterLoop("Slow and has lots of console spew")]
         public void EventSourceEnforcesHistogramLimitAndNotMaxTimeSeries()
         {
             using Meter meter = new Meter("TestMeter17");
