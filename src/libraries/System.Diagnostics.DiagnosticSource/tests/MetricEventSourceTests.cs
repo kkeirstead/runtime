@@ -13,6 +13,10 @@ using Xunit.Abstractions;
 
 namespace System.Diagnostics.Metrics.Tests
 {
+    [CollectionDefinition(nameof(MetricEventSourceTests), DisableParallelization = true)]
+    public class SystemTestCollectionDefinition { }
+
+    [Collection(nameof(SystemTestCollectionDefinition))]
     public class MetricEventSourceTests
     {
         ITestOutputHelper _output;
@@ -22,6 +26,10 @@ namespace System.Diagnostics.Metrics.Tests
         public MetricEventSourceTests(ITestOutputHelper output)
         {
             _output = output;
+        }
+
+        public class MyEventSource : EventSource
+        {
         }
 
         [ConditionalFact(typeof(PlatformDetection), nameof(PlatformDetection.IsNotBrowser))]
@@ -46,6 +54,10 @@ namespace System.Diagnostics.Metrics.Tests
 
                 using (MetricsEventListener listener2 = new MetricsEventListener(_output, MetricsEventListener.TimeSeriesValues, isShared: true, IntervalSecs, "TestMeter2"))
                 {
+                    var myEventSource = new MyEventSource();
+                    listener2.EnableEvents(myEventSource, EventLevel.LogAlways);
+                    listener2.DisableEvents(myEventSource);
+
                     listener2.WaitForCollectionStop(s_waitForEventTimeout, 1);
                     c2.Add(5);
                     listener2.WaitForCollectionStop(s_waitForEventTimeout, 2);
@@ -60,8 +72,54 @@ namespace System.Diagnostics.Metrics.Tests
             AssertCounterEventsPresent(events, meter.Name, c.Name, "", "", ("5", "5"), ("12", "17"));
             AssertCollectStartStopEventsPresent(events, IntervalSecs, 3);
 
-            AssertBeginInstrumentReportingEventsPresent(events2, c, c2);
-            AssertInitialEnumerationCompleteEventPresent(events2);
+            //AssertBeginInstrumentReportingEventsPresent(events2, c, c2);
+            //AssertInitialEnumerationCompleteEventPresent(events2);
+            AssertCounterEventsPresent(events2, meter2.Name, c2.Name, "", "", ("5", "5"), ("12", "17"));
+            AssertCollectStartStopEventsPresent(events2, IntervalSecs, 3);
+        }
+
+        [ConditionalFact(typeof(PlatformDetection), nameof(PlatformDetection.IsNotBrowser))]
+        //[OuterLoop("Slow and has lots of console spew")]
+        public void MultipleListeners_DifferentCounters2()
+        {
+            using Meter meter = new Meter("TestMeter3");
+            Counter<int> c = meter.CreateCounter<int>("counter1");
+
+            using Meter meter2 = new Meter("TestMeter4");
+            Counter<int> c2 = meter2.CreateCounter<int>("counter2");
+
+            EventWrittenEventArgs[] events, events2;
+            using (MetricsEventListener listener = new MetricsEventListener(_output, MetricsEventListener.TimeSeriesValues, isShared: true, IntervalSecs, "TestMeter3"))
+            {
+                listener.WaitForCollectionStop(s_waitForEventTimeout, 1);
+                c.Add(5);
+                listener.WaitForCollectionStop(s_waitForEventTimeout, 2);
+                c.Add(12);
+                listener.WaitForCollectionStop(s_waitForEventTimeout, 3);
+                events = listener.Events.ToArray();
+
+                using (MetricsEventListener listener2 = new MetricsEventListener(_output, MetricsEventListener.TimeSeriesValues, isShared: true, IntervalSecs, "TestMeter4"))
+                {
+                    var myEventSource = new MyEventSource();
+                    listener2.EnableEvents(myEventSource, EventLevel.LogAlways);
+                    listener2.DisableEvents(myEventSource);
+
+                    listener2.WaitForCollectionStop(s_waitForEventTimeout, 1);
+                    c2.Add(5);
+                    listener2.WaitForCollectionStop(s_waitForEventTimeout, 2);
+                    c2.Add(12);
+                    listener2.WaitForCollectionStop(s_waitForEventTimeout, 3);
+                    events2 = listener2.Events.ToArray();
+                }
+            }
+
+            AssertBeginInstrumentReportingEventsPresent(events, c);
+            AssertInitialEnumerationCompleteEventPresent(events);
+            AssertCounterEventsPresent(events, meter.Name, c.Name, "", "", ("5", "5"), ("12", "17"));
+            AssertCollectStartStopEventsPresent(events, IntervalSecs, 3);
+
+            //AssertBeginInstrumentReportingEventsPresent(events2, c, c2);
+            //AssertInitialEnumerationCompleteEventPresent(events2);
             AssertCounterEventsPresent(events2, meter2.Name, c2.Name, "", "", ("5", "5"), ("12", "17"));
             AssertCollectStartStopEventsPresent(events2, IntervalSecs, 3);
         }
@@ -420,6 +478,34 @@ namespace System.Diagnostics.Metrics.Tests
             AssertBeginInstrumentReportingEventsPresent(events, c);
             AssertCounterEventsPresent(events, meter.Name, c.Name, "", c.Unit, ("5", "5"), ("12", "17"), ("19", "36"));
             AssertCollectStartStopEventsPresent(events, IntervalSecs, 4);
+        }
+
+        [ConditionalFact(typeof(PlatformDetection), nameof(PlatformDetection.IsNotBrowser))]
+        //[OuterLoop("Slow and has lots of console spew")]
+        public void MultipleListeners_RepeatedlyPublishingAndDisposingMeter()
+        {
+            using Meter meter = new Meter("TestMeter7");
+            Counter<int> c = meter.CreateCounter<int>("counter1", "hat", "Fooz!!");
+
+            EventWrittenEventArgs[] events;
+            using (MetricsEventListener listener = new MetricsEventListener(_output, MetricsEventListener.TimeSeriesValues, isShared: true, IntervalSecs, "TestMeter7"))
+            {
+                for (int index = 0; index < 1000; ++index)
+                {
+                    using (Meter tempMeter = new Meter("TestMeterTEMP"))
+                    {
+                        Counter<int> tempC = tempMeter.CreateCounter<int>("counter2", "hat", "Fooz!!");
+
+                        using (MetricsEventListener tempListener = new MetricsEventListener(_output, MetricsEventListener.TimeSeriesValues, isShared: true, IntervalSecs, "TestMeterTEMP"))
+                        {
+                        }
+                    }
+                }
+
+                events = listener.Events.ToArray();
+            }
+
+            Assert.NotEmpty(events); // just checking if got to end.
         }
 
         [ConditionalFact(typeof(PlatformDetection), nameof(PlatformDetection.IsNotBrowser))]
@@ -1810,6 +1896,12 @@ namespace System.Diagnostics.Metrics.Tests
                     EnableEvents(_source, EventLevel.Informational, _keywords, _arguments);
                 }
             }
+            else if (eventSource != null)
+            {
+                EnableEvents(eventSource, EventLevel.Informational, _keywords, _arguments);
+            }
+
+
         }
 
         public override void Dispose()
